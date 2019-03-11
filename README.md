@@ -10,6 +10,9 @@ github-comment --repo owner/repo --pr 2 --id "123-ABC" "Hello World"
 # Update the comment
 github-comment --repo owner/repo --pr 2 --id "123-ABC" "Hello Universe"
 
+# Update the comment another time
+echo "Hello there!" |  github-comment --repo owner/repo --pr 2 --id "123-ABC"
+
 ```
 
 
