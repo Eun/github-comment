@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -18,7 +19,7 @@ var (
 	repositoryFlag = kingpin.Flag("repo", "repository").PlaceHolder("owner/repo").Required().String()
 	issueFlag      = kingpin.Flag("issue", "issue id").PlaceHolder("1234").Int()
 	prFlag         = kingpin.Flag("pr", "pull request id").PlaceHolder("1234").Int()
-	textFlag       = kingpin.Arg("text", "text to post").Required().String()
+	textFlag       = kingpin.Arg("text", "text to post").String()
 )
 
 var version string
@@ -63,6 +64,18 @@ func main() {
 	} else {
 		id = *prFlag
 	}
+
+	if *textFlag == "" {
+		var sb strings.Builder
+		_, err := io.Copy(&sb, os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to read from stdin: %v\n", err.Error())
+			os.Exit(1)
+		}
+		t := sb.String()
+		textFlag = &t
+	}
+
 	if err = githubcomment.PostOrUpdateIssueComment(client, ctx, owner, repo, id, githubcomment.ID(*idFlag), *textFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err.Error())
 		os.Exit(1)
@@ -85,9 +98,15 @@ func sanitizeFlags() {
 		var zero int
 		issueFlag = &zero
 	}
+
 	if prFlag == nil {
 		var zero int
 		prFlag = &zero
+	}
+
+	if textFlag == nil {
+		var nullString string
+		textFlag = &nullString
 	}
 }
 
