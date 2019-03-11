@@ -21,7 +21,12 @@ var (
 	textFlag       = kingpin.Arg("text", "text to post").Required().String()
 )
 
+var version string
+var commit string
+var date string
+
 func main() {
+	kingpin.Version(fmt.Sprintf("%s %s %s", version, commit, date))
 	kingpin.Parse()
 
 	sanitizeFlags()
