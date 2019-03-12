@@ -1,7 +1,6 @@
 package githubcomment
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 
@@ -27,19 +26,4 @@ func (i ID) GetID() string {
 	}
 
 	return sb.String()
-}
-
-const magic = "github-info-id"
-
-func makeMagicMarker(id ID) string {
-	return fmt.Sprintf("<!---%s-%s--->", magic, id.GetID())
-}
-
-func makeBody(body string, id ID) *string {
-	var sb strings.Builder
-	sb.WriteString(body)
-	sb.WriteRune('\n')
-	sb.WriteString(makeMagicMarker(id))
-	t := sb.String()
-	return &t
 }

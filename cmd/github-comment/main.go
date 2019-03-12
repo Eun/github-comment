@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
+	yaml "gopkg.in/yaml.v2"
 )
 
 var (
@@ -19,20 +21,87 @@ var (
 	repositoryFlag = kingpin.Flag("repo", "repository").PlaceHolder("owner/repo").Required().String()
 	issueFlag      = kingpin.Flag("issue", "issue id").PlaceHolder("1234").Int()
 	prFlag         = kingpin.Flag("pr", "pull request id").PlaceHolder("1234").Int()
-	textFlag       = kingpin.Arg("text", "text to post").String()
+
+	getCmd = kingpin.Command("get", "get the text of a posted comment")
+
+	getMetaCmd    = kingpin.Command("get-meta", "get the meta of a posted comment")
+	getMetaFormat = getMetaCmd.Flag("meta-format", "format for the meta").PlaceHolder("json|yml").Default("json").String()
+
+	postOrUpdateCmd = kingpin.Command("post", "post or update a new comment").Default()
+	setMetaFormat   = postOrUpdateCmd.Flag("meta-format", "format for the meta").PlaceHolder("json|yml").Default("json").String()
+	setMetaFlag     = postOrUpdateCmd.Flag("meta", "meta to set").String()
+	setTextFlag     = postOrUpdateCmd.Arg("text", "text to post").String()
 )
 
 var version string
 var commit string
 var date string
 
+var comment githubcomment.GithubComment
+
 func main() {
 	kingpin.Version(fmt.Sprintf("%s %s %s", version, commit, date))
-	kingpin.Parse()
-
+	cmd := kingpin.Parse()
 	sanitizeFlags()
+	initComments()
+	switch cmd {
+	case getCmd.FullCommand():
+		getText()
+	case getMetaCmd.FullCommand():
+		getMeta()
+	case postOrUpdateCmd.FullCommand():
+		postOrUpdate()
+	}
+}
 
-	owner, repo, err := parseOwnerAndRepo(*repositoryFlag)
+func sanitizeFlags() {
+	// general
+	if idFlag == nil {
+		var nullString string
+		idFlag = &nullString
+	}
+
+	if repositoryFlag == nil {
+		var nullString string
+		repositoryFlag = &nullString
+	}
+
+	if issueFlag == nil {
+		var zero int
+		issueFlag = &zero
+	}
+
+	if prFlag == nil {
+		var zero int
+		prFlag = &zero
+	}
+
+	// get meta command
+	if getMetaFormat == nil {
+		var nullString string
+		getMetaFormat = &nullString
+	}
+
+	// post command
+	if setMetaFormat == nil {
+		var nullString string
+		setMetaFormat = &nullString
+	}
+
+	if setMetaFlag == nil {
+		var nullString string
+		setMetaFlag = &nullString
+	}
+
+	if setTextFlag == nil {
+		var nullString string
+		setTextFlag = &nullString
+	}
+}
+
+func initComments() {
+	var err error
+	comment.Owner, comment.Repository, err = parseOwnerAndRepo(*repositoryFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid repository `%s': %v\n", *repositoryFlag, err.Error())
 		os.Exit(1)
@@ -54,60 +123,8 @@ func main() {
 	)
 	tc := oauth2.NewClient(oauth2.NoContext, ts)
 
-	client := github.NewClient(tc)
-
-	ctx := context.Background()
-
-	var id int
-	if *issueFlag > 0 {
-		id = *issueFlag
-	} else {
-		id = *prFlag
-	}
-
-	if *textFlag == "" {
-		var sb strings.Builder
-		_, err := io.Copy(&sb, os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to read from stdin: %v\n", err.Error())
-			os.Exit(1)
-		}
-		t := sb.String()
-		textFlag = &t
-	}
-
-	if err = githubcomment.PostOrUpdateIssueComment(client, ctx, owner, repo, id, githubcomment.ID(*idFlag), *textFlag); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err.Error())
-		os.Exit(1)
-	}
-	os.Exit(0)
-}
-
-func sanitizeFlags() {
-	if idFlag == nil {
-		var nullString string
-		idFlag = &nullString
-	}
-
-	if repositoryFlag == nil {
-		var nullString string
-		repositoryFlag = &nullString
-	}
-
-	if issueFlag == nil {
-		var zero int
-		issueFlag = &zero
-	}
-
-	if prFlag == nil {
-		var zero int
-		prFlag = &zero
-	}
-
-	if textFlag == nil {
-		var nullString string
-		textFlag = &nullString
-	}
+	comment.Client = github.NewClient(tc)
+	comment.Context = context.Background()
 }
 
 func parseOwnerAndRepo(s string) (owner, repo string, err error) {
@@ -116,4 +133,77 @@ func parseOwnerAndRepo(s string) (owner, repo string, err error) {
 		return p[0], p[1], nil
 	}
 	return "", "", errors.New("unable to parse repository")
+}
+
+func postOrUpdate() {
+	var id int
+	if *issueFlag > 0 {
+		id = *issueFlag
+	} else {
+		id = *prFlag
+	}
+
+	if *setTextFlag == "" {
+		var sb strings.Builder
+		_, err := io.Copy(&sb, os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to read from stdin: %v\n", err.Error())
+			os.Exit(1)
+		}
+		t := sb.String()
+		setTextFlag = &t
+	}
+	meta, err := readMetaFromFlags()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err.Error())
+		os.Exit(1)
+	}
+
+	if err = comment.PostOrUpdateIssueComment(id, githubcomment.ID(*idFlag), *setTextFlag, meta); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err.Error())
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func get() *githubcomment.Info {
+	var id int
+	if *issueFlag > 0 {
+		id = *issueFlag
+	} else {
+		id = *prFlag
+	}
+
+	info, err := comment.GetIssueComment(id, githubcomment.ID(*idFlag))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err.Error())
+		os.Exit(1)
+	}
+	return info
+}
+
+func getText() {
+	fmt.Fprint(os.Stdout, get().Body)
+	os.Exit(0)
+}
+
+func getMeta() {
+	switch strings.ToLower(*getMetaFormat) {
+	case "yml", "yaml":
+		yaml.NewEncoder(os.Stdout).Encode(get().Meta)
+	default:
+		json.NewEncoder(os.Stdout).Encode(get().Meta)
+	}
+
+	os.Exit(0)
+}
+
+func readMetaFromFlags() (v interface{}, err error) {
+	switch strings.ToLower(*setMetaFormat) {
+	case "yml", "yaml":
+		err = yaml.Unmarshal([]byte(*setMetaFlag), &v)
+	default:
+		err = json.Unmarshal([]byte(*setMetaFlag), &v)
+	}
+	return v, err
 }
