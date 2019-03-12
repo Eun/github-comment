@@ -199,11 +199,13 @@ func getMeta() {
 }
 
 func readMetaFromFlags() (v interface{}, err error) {
-	switch strings.ToLower(*setMetaFormat) {
-	case "yml", "yaml":
-		err = yaml.Unmarshal([]byte(*setMetaFlag), &v)
-	default:
-		err = json.Unmarshal([]byte(*setMetaFlag), &v)
+	if *setMetaFlag != "" {
+		switch strings.ToLower(*setMetaFormat) {
+		case "yml", "yaml":
+			err = yaml.Unmarshal([]byte(*setMetaFlag), &v)
+		default:
+			err = json.Unmarshal([]byte(*setMetaFlag), &v)
+		}
 	}
 	return v, err
 }
