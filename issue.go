@@ -34,21 +34,32 @@ func (gc *GithubComment) FindIssueComment(issueID int, id ID) (*github.IssueComm
 	if id == "" {
 		return nil, IDMustBeSpecifiedError{}
 	}
-	comments, _, err := gc.Client.Issues.ListComments(gc.Context, gc.Owner, gc.Repository, issueID, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	magicMarker := makeMagicMarker(id)
-	for _, comment := range comments {
-		if comment.Body == nil || comment.ID == nil {
-			continue
+	page := 1
+	for {
+		comments, res, err := gc.Client.Issues.ListComments(gc.Context, gc.Owner, gc.Repository, issueID, &github.IssueListCommentsOptions{
+			ListOptions: github.ListOptions{
+				Page:    page,
+				PerPage: 30,
+			},
+		})
+		if err != nil {
+			return nil, err
 		}
-		if strings.Contains(*comment.Body, magicMarker) {
-			return comment, nil
+
+		for _, comment := range comments {
+			if comment.Body == nil || comment.ID == nil {
+				continue
+			}
+			if strings.Contains(*comment.Body, magicMarker) {
+				return comment, nil
+			}
 		}
+		if res.NextPage <= 0 {
+			return nil, IssueCommentNotFoundError{ID: id}
+		}
+		page = res.NextPage
 	}
-	return nil, IssueCommentNotFoundError{ID: id}
 }
 
 // PostIssueComment posts a new comment with the specified id
