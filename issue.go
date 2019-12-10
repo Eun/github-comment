@@ -30,11 +30,20 @@ func (e IssueCommentNotFoundError) Error() string {
 }
 
 // FindIssueComment finds a issue comment and returns it
-func (gc *GithubComment) FindIssueComment(issueID int, id ID) (*github.IssueComment, error) {
+func (gc *GithubComment) FindIssueComment(issueID int, id ID) (*github.Issue, *github.IssueComment, error) {
 	if id == "" {
-		return nil, IDMustBeSpecifiedError{}
+		return nil, nil, IDMustBeSpecifiedError{}
 	}
 	magicMarker := makeMagicMarker(id)
+
+	issue, _, err := gc.Client.Issues.Get(gc.Context, gc.Owner, gc.Repository, issueID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if strings.Contains(issue.GetBody(), magicMarker) {
+		return issue, nil, nil
+	}
+
 	page := 1
 	for {
 		comments, res, err := gc.Client.Issues.ListComments(gc.Context, gc.Owner, gc.Repository, issueID, &github.IssueListCommentsOptions{
@@ -44,19 +53,19 @@ func (gc *GithubComment) FindIssueComment(issueID int, id ID) (*github.IssueComm
 			},
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		for _, comment := range comments {
-			if comment.Body == nil || comment.ID == nil {
+			if comment.ID == nil {
 				continue
 			}
-			if strings.Contains(*comment.Body, magicMarker) {
-				return comment, nil
+			if strings.Contains(comment.GetBody(), magicMarker) {
+				return nil, comment, nil
 			}
 		}
 		if res.NextPage <= 0 {
-			return nil, IssueCommentNotFoundError{ID: id}
+			return nil, nil, IssueCommentNotFoundError{ID: id}
 		}
 		page = res.NextPage
 	}
@@ -81,7 +90,7 @@ func (gc *GithubComment) PostIssueComment(issueID int, id ID, text string, meta 
 
 // UpdateIssueComment updates an existing comment
 func (gc *GithubComment) UpdateIssueComment(issueID int, id ID, text string, meta interface{}) error {
-	comment, err := gc.FindIssueComment(issueID, id)
+	issue, comment, err := gc.FindIssueComment(issueID, id)
 	if err != nil {
 		if _, ok := err.(IssueCommentNotFoundError); !ok {
 			return err
@@ -97,6 +106,12 @@ func (gc *GithubComment) UpdateIssueComment(issueID int, id ID, text string, met
 	if err != nil {
 		return err
 	}
+	if issue != nil {
+		_, _, err = gc.Client.Issues.Edit(gc.Context, gc.Owner, gc.Repository, issueID, &github.IssueRequest{
+			Body: &bodyText,
+		})
+		return err
+	}
 	_, _, err = gc.Client.Issues.EditComment(gc.Context, gc.Owner, gc.Repository, comment.GetID(), &github.IssueComment{
 		Body: &bodyText,
 	})
@@ -106,18 +121,21 @@ func (gc *GithubComment) UpdateIssueComment(issueID int, id ID, text string, met
 // PostOrUpdateIssueComment  posts an new comment if it was not able to update the existing comment,
 // if you omit the ID it will always post a new comment
 func (gc *GithubComment) PostOrUpdateIssueComment(issueID int, id ID, text string, meta interface{}) error {
-	// if id is not specificed
+	// if id is not specified
 	if id == "" {
 		return gc.PostIssueComment(issueID, id, text, meta)
 	}
 	return gc.UpdateIssueComment(issueID, id, text, meta)
 }
 
-// GetIssueComment retruns the info for a comment
+// GetIssueComment returns the info for a comment
 func (gc *GithubComment) GetIssueComment(issueID int, id ID) (*Info, error) {
-	comment, err := gc.FindIssueComment(issueID, id)
+	issue, comment, err := gc.FindIssueComment(issueID, id)
 	if err != nil {
 		return nil, err
+	}
+	if issue != nil {
+		return ParseInfo(issue.GetBody())
 	}
 
 	return ParseInfo(comment.GetBody())

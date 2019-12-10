@@ -37,7 +37,7 @@ func ParseInfo(raw string) (*Info, error) {
 	var info Info
 	// limit the search
 	info.Body = raw[end+1:]
-	raw = raw[:end]
+	raw = strings.TrimSpace(raw[:end])
 	matches := regexID.FindStringSubmatch(raw)
 	if len(matches) != 2 {
 		return nil, errors.New("no marker found (regex failure)")

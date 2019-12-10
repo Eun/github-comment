@@ -16,6 +16,7 @@ func TestParseInfo(t *testing.T) {
 		{fmt.Sprintf("%s\n", makeMagicMarker(ID("123"))), &Info{ID: ID("123")}, ""},
 		{fmt.Sprintf("%s\nHello World!", makeMagicMarker(ID("123"))), &Info{ID: ID("123"), Body: "Hello World!"}, ""},
 		{fmt.Sprintf("%s<!---[1,2,3]--->\nHello World!", makeMagicMarker(ID("123"))), &Info{ID: ID("123"), Meta: []interface{}{float64(1), float64(2), float64(3)}, Body: "Hello World!"}, ""},
+		{fmt.Sprintf("%s\r\n<!---Hello World--->", makeMagicMarker(ID("123"))), &Info{ID: ID("123"), Body: "<!---Hello World--->"}, ""},
 
 		{"Hello World", nil, "no marker found (invalid header)"},
 		{"<!---github-info-id-ÖÄL--->\n", nil, "no marker found (regex failure)"},
